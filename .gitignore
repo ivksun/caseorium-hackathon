@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.pyc
+.DS_Store
+*.mp3
+*.mp4
+*.wav
+/output/
+.venv/
+cases/*_draft/
+*.egg-info/
