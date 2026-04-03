@@ -1,36 +1,38 @@
-# AGENTS.md — Caseorium Hackathon
+# AGENTS.md — Caseorium Pipeline Agents
 
-Проект для хакатона: мульти-агентный пайплайн генерации кейсов.
-YouTube → транскрипция → анализ → написание → редактура → WordPress.
+5-агентный пайплайн: Transcriber → Analyst → Writer → Editor → Publisher.
 
-## Контекст
+## Агенты
 
-- Медиа Generation AI (generation-ai.ru) — кейсы о внедрении AI в бизнес
-- После конференций 30-50 докладов → нужно превратить в кейсы
-- Текущий процесс: 3-4 часа ручной работы + неделя на верстку
-- Цель: 15-30 минут автономной работы агентов
+| # | Агент | Вход | Выход | Промпт |
+|---|-------|------|-------|--------|
+| 1 | **Transcriber** | YouTube URL | transcript.md | — |
+| 2 | **Analyst** | transcript + slides | facts_extracted.md, slides_analysis.md, company_metadata.md | `engine/slides_mapping_prompt.md` |
+| 3 | **Writer** | facts + metadata | case_draft_v1.md → *_READY.md | `engine/02_case_writing_rules.md`, `engine/wp_layout_rules.md` |
+| 4 | **Editor** | draft | *_READY.md (отредактированный) | `engine/fact_validation_prompt.md` |
+| 5 | **Publisher** | *_READY.md + slides/ | WordPress draft | `tools/publish_to_wp_v2.py` |
 
-## Структура проекта
+## Обязательные правила для всех агентов
 
-- `agents/` — код агентов
-- `tools/` — утилиты (транскрипция, слайды, WP)
-- `engine/` — промпты и правила для каждого этапа
-- `knowledge/` — база знаний о продукте и аудитории
-- `cases/examples/` — референсные кейсы
-- `config/` — конфигурация
-- `references/` — стайлгайд
-
-## Правила
-
-- Язык общения: русский
-- Код и комментарии: английский
-- Стиль текстов: инфостиль, без воды, без нейросетевых клише
+- Читать: `engine/02_case_writing_rules.md` + `engine/wp_layout_rules.md`
 - Стайлгайд: `references/russian-style-guide.md`
-- Правила кейсов: `engine/02_case_writing_rules.md`
+- Контекст: `engine/00_context.md`
+- Референсные кейсы: `cases/examples/`
 
-## WordPress
+## HITL-чекпоинты
 
-- Тестовый: testforagents.just-ai.ru
-- Post type: `cases`
-- ACF Flexible Content для секций
-- Таксономии: отрасли + задачи
+Пайплайн останавливается для ревью после этапов Analyst и Writer.
+Настраивается в `agents/pipeline.py`.
+
+## Запуск
+
+```bash
+# Полный пайплайн
+python3 main.py --url <youtube_url> [--slides <path.pdf>]
+
+# Writer + Editor на готовом анализе
+python3 run_writer_editor.py <case_dir>
+
+# Веб-интерфейс
+python3 server.py
+```
