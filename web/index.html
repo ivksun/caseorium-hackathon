@@ -1,0 +1,1302 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Caseorium — AI Case Pipeline</title>
+    <style>
+        :root {
+            --bg: #0a0a0f;
+            --surface: #141420;
+            --surface2: #1c1c2e;
+            --border: #2a2a40;
+            --text: #e4e4ef;
+            --text2: #8888a0;
+            --accent: #6c5ce7;
+            --accent2: #a29bfe;
+            --green: #00cec9;
+            --green2: #55efc4;
+            --orange: #fdcb6e;
+            --red: #ff7675;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            padding: 24px 40px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .logo {
+            font-size: 24px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent2), var(--green));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .logo-sub {
+            color: var(--text2);
+            font-size: 14px;
+        }
+
+        /* Layout */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px;
+        }
+
+        /* Step 1: Input form */
+        .step { display: none; }
+        .step.active { display: block; }
+
+        .form-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 40px;
+        }
+        .form-title {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .form-subtitle {
+            color: var(--text2);
+            margin-bottom: 32px;
+            font-size: 15px;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .form-group.full { grid-column: 1 / -1; }
+
+        label {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text2);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        input[type="text"], input[type="url"], select {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 14px 16px;
+            color: var(--text);
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        input:focus, select:focus {
+            border-color: var(--accent);
+        }
+        input::placeholder { color: var(--text2); opacity: 0.5; }
+
+        .file-input {
+            position: relative;
+            background: var(--surface2);
+            border: 2px dashed var(--border);
+            border-radius: 10px;
+            padding: 24px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+        .file-input:hover { border-color: var(--accent); }
+        .file-input input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+        .file-input .file-label { color: var(--text2); font-size: 14px; }
+        .file-input .file-name { color: var(--green); font-size: 14px; margin-top: 4px; display: none; }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 14px 32px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent), #8b5cf6);
+            color: white;
+        }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(108,92,231,0.3); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+        .btn-green {
+            background: linear-gradient(135deg, var(--green), #00b894);
+            color: white;
+        }
+        .btn-green:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(0,206,201,0.3); }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text);
+        }
+        .btn-outline:hover { border-color: var(--text2); }
+
+        .form-actions {
+            margin-top: 32px;
+            display: flex;
+            gap: 12px;
+        }
+
+        /* Step 2: Progress */
+        .pipeline-visual {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin: 48px 0;
+        }
+        .stage-node {
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            font-weight: 700;
+            background: var(--surface2);
+            border: 2px solid var(--border);
+            color: var(--text2);
+            transition: all 0.4s;
+            position: relative;
+        }
+        .stage-node.active {
+            border-color: var(--accent);
+            color: var(--accent2);
+            box-shadow: 0 0 24px rgba(108,92,231,0.3);
+            animation: pulse 2s infinite;
+        }
+        .stage-node.done {
+            border-color: var(--green);
+            color: var(--green);
+            background: rgba(0,206,201,0.1);
+        }
+        .stage-connector {
+            width: 40px;
+            height: 2px;
+            background: var(--border);
+            transition: background 0.4s;
+        }
+        .stage-connector.done { background: var(--green); }
+
+        .stage-label {
+            position: absolute;
+            top: 72px;
+            font-size: 11px;
+            color: var(--text2);
+            white-space: nowrap;
+            text-align: center;
+        }
+        .stage-node.active .stage-label { color: var(--accent2); }
+        .stage-node.done .stage-label { color: var(--green); }
+
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 24px rgba(108,92,231,0.3); }
+            50% { box-shadow: 0 0 40px rgba(108,92,231,0.5); }
+        }
+
+        .progress-status {
+            text-align: center;
+            margin: 48px 0 24px;
+        }
+        .progress-status h2 {
+            font-size: 22px;
+            margin-bottom: 8px;
+        }
+        .progress-status p {
+            color: var(--text2);
+            font-size: 14px;
+        }
+
+        .progress-log {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 13px;
+            color: var(--text2);
+            line-height: 1.8;
+        }
+        .log-entry { padding: 2px 0; }
+        .log-entry .time { color: var(--text2); opacity: 0.5; }
+        .log-entry .stage-name { color: var(--green); }
+
+        /* Step 3: Editor */
+        .editor-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 24px;
+        }
+        .editor-header h2 { font-size: 22px; }
+        .editor-stats {
+            display: flex;
+            gap: 24px;
+            font-size: 13px;
+            color: var(--text2);
+        }
+        .editor-stats span { display: flex; align-items: center; gap: 6px; }
+        .stat-value { color: var(--green); font-weight: 600; }
+
+        .case-editor {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            min-height: 600px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .editor-toolbar {
+            padding: 10px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .toolbar-btn {
+            padding: 6px 12px;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text2);
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .toolbar-btn:hover { border-color: var(--text2); color: var(--text); }
+        .toolbar-btn.active { border-color: var(--accent); color: var(--accent2); }
+        .toolbar-sep {
+            width: 1px;
+            height: 20px;
+            background: var(--border);
+            margin: 0 4px;
+        }
+        .toolbar-hint {
+            margin-left: auto;
+            font-size: 12px;
+            color: var(--text2);
+            opacity: 0.5;
+        }
+
+        .toolbar-btn {
+            position: relative;
+        }
+        .toolbar-btn::after {
+            content: attr(data-tip);
+            position: absolute;
+            bottom: calc(100% + 8px);
+            left: 50%;
+            transform: translateX(-50%) translateY(4px);
+            padding: 6px 10px;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 12px;
+            font-weight: 400;
+            white-space: nowrap;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s, transform 0.15s;
+            z-index: 10;
+        }
+        .toolbar-btn:hover::after {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+        .toolbar-btn:not([data-tip])::after {
+            display: none;
+        }
+
+        .split-pane {
+            display: flex;
+            flex: 1;
+            min-height: 600px;
+        }
+        .split-pane.mode-edit .pane-preview { display: none; }
+        .split-pane.mode-edit .pane-edit { flex: 1; }
+        .split-pane.mode-preview .pane-edit { display: none; }
+        .split-pane.mode-preview .pane-preview { flex: 1; }
+        .split-pane.mode-split .pane-edit { flex: 1; border-right: 1px solid var(--border); }
+        .split-pane.mode-split .pane-preview { flex: 1; }
+
+        .pane-edit { display: flex; flex-direction: column; min-width: 0; }
+        .pane-preview { display: flex; flex-direction: column; min-width: 0; overflow-y: auto; }
+
+        .editor-textarea {
+            width: 100%;
+            flex: 1;
+            padding: 20px;
+            background: transparent;
+            border: none;
+            color: var(--text);
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 14px;
+            line-height: 1.7;
+            resize: none;
+            outline: none;
+            tab-size: 2;
+        }
+
+        .editor-preview {
+            padding: 24px;
+            line-height: 1.8;
+            font-size: 15px;
+            overflow-y: auto;
+        }
+        .editor-preview h1 {
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--accent2);
+            margin: 32px 0 8px;
+            opacity: 0.7;
+        }
+        .editor-preview h2 {
+            font-size: 22px;
+            font-weight: 700;
+            margin: 28px 0 12px;
+            color: var(--text);
+            line-height: 1.3;
+        }
+        .editor-preview h2:first-of-type {
+            font-size: 26px;
+            background: linear-gradient(135deg, var(--text), var(--accent2));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .editor-preview h3 {
+            font-size: 17px;
+            font-weight: 600;
+            margin: 20px 0 8px;
+            color: var(--text);
+        }
+        .editor-preview p { margin: 10px 0; color: var(--text); opacity: 0.9; }
+        .editor-preview blockquote {
+            border-left: 3px solid var(--accent);
+            padding: 12px 16px;
+            background: rgba(108,92,231,0.05);
+            border-radius: 0 8px 8px 0;
+            color: var(--text2);
+            margin: 16px 0;
+            font-style: italic;
+        }
+        .editor-preview strong { color: var(--green2); font-weight: 700; }
+        .editor-preview .illust-marker {
+            display: block;
+            margin: 16px 0;
+            padding: 12px 16px;
+            background: rgba(253,203,110,0.08);
+            border: 1px dashed var(--orange);
+            border-radius: 8px;
+            font-size: 13px;
+            color: var(--orange);
+        }
+        .editor-preview .illust-marker::before {
+            content: 'SLIDE';
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            margin-right: 8px;
+            padding: 2px 6px;
+            background: var(--orange);
+            color: var(--bg);
+            border-radius: 3px;
+        }
+        .editor-preview .design-block {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+            margin: 16px 0;
+            font-size: 13px;
+            color: var(--text2);
+        }
+        .editor-preview .design-block strong { color: var(--text); }
+        .editor-preview .tldr {
+            background: rgba(0,206,201,0.06);
+            border-left: 3px solid var(--green);
+            padding: 16px 20px;
+            border-radius: 0 8px 8px 0;
+            margin: 16px 0;
+        }
+        .editor-preview ul, .editor-preview ol { margin: 8px 0; padding-left: 24px; }
+        .editor-preview li { margin: 4px 0; opacity: 0.9; }
+
+        .editor-actions {
+            margin-top: 24px;
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            padding: 14px 24px;
+            background: var(--surface);
+            border: 1px solid var(--green);
+            border-radius: 10px;
+            color: var(--green);
+            font-size: 14px;
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s;
+            z-index: 100;
+        }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .toast.error { border-color: var(--red); color: var(--red); }
+
+        /* Dancing Cat */
+        .dancing-cat {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 32px 0;
+            user-select: none;
+        }
+        .cat-body {
+            position: relative;
+            width: 80px;
+            height: 90px;
+            animation: catDance 0.6s ease-in-out infinite;
+        }
+        .cat-head {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 40px;
+            height: 36px;
+            background: var(--accent2);
+            border-radius: 50% 50% 45% 45%;
+            z-index: 2;
+            animation: catHeadBob 0.6s ease-in-out infinite;
+        }
+        .cat-ear {
+            position: absolute;
+            top: -8px;
+            width: 0;
+            height: 0;
+            border-left: 8px solid transparent;
+            border-right: 8px solid transparent;
+            border-bottom: 14px solid var(--accent2);
+        }
+        .cat-ear-l { left: 2px; transform: rotate(-10deg); }
+        .cat-ear-r { right: 2px; transform: rotate(10deg); }
+        .cat-face {
+            position: absolute;
+            top: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 30px;
+            height: 20px;
+        }
+        .cat-eye {
+            position: absolute;
+            top: 2px;
+            width: 6px;
+            height: 6px;
+            background: var(--bg);
+            border-radius: 50%;
+            animation: catBlink 3s ease-in-out infinite;
+        }
+        .cat-eye-l { left: 4px; }
+        .cat-eye-r { right: 4px; }
+        .cat-mouth {
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 8px;
+            height: 4px;
+            border-bottom: 2px solid var(--bg);
+            border-radius: 0 0 50% 50%;
+        }
+        .cat-torso {
+            position: absolute;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 36px;
+            height: 40px;
+            background: var(--accent2);
+            border-radius: 40% 40% 50% 50%;
+        }
+        .cat-paw {
+            position: absolute;
+            bottom: 4px;
+            width: 14px;
+            height: 24px;
+            background: var(--accent2);
+            border-radius: 6px 6px 8px 8px;
+        }
+        .cat-paw-l {
+            left: 14px;
+            animation: catPawL 0.3s ease-in-out infinite alternate;
+        }
+        .cat-paw-r {
+            right: 14px;
+            animation: catPawR 0.3s ease-in-out infinite alternate;
+        }
+        .cat-tail {
+            position: absolute;
+            bottom: 14px;
+            right: -8px;
+            width: 30px;
+            height: 6px;
+            background: var(--accent2);
+            border-radius: 3px;
+            transform-origin: left center;
+            animation: catTail 0.8s ease-in-out infinite;
+        }
+        .cat-shadow {
+            width: 50px;
+            height: 8px;
+            background: rgba(108,92,231,0.15);
+            border-radius: 50%;
+            margin-top: 4px;
+            animation: catShadow 0.6s ease-in-out infinite;
+        }
+        .cat-caption {
+            margin-top: 12px;
+            font-size: 13px;
+            color: var(--text2);
+            opacity: 0.6;
+            animation: catCaptionFade 4s ease-in-out infinite;
+        }
+
+        @keyframes catDance {
+            0%, 100% { transform: translateY(0) rotate(0deg); }
+            25% { transform: translateY(-10px) rotate(-3deg); }
+            75% { transform: translateY(-10px) rotate(3deg); }
+        }
+        @keyframes catHeadBob {
+            0%, 100% { transform: translateX(-50%) rotate(0deg); }
+            25% { transform: translateX(-50%) rotate(5deg); }
+            75% { transform: translateX(-50%) rotate(-5deg); }
+        }
+        @keyframes catPawL {
+            from { transform: translateY(0) rotate(-5deg); }
+            to { transform: translateY(-8px) rotate(5deg); }
+        }
+        @keyframes catPawR {
+            from { transform: translateY(-8px) rotate(5deg); }
+            to { transform: translateY(0) rotate(-5deg); }
+        }
+        @keyframes catTail {
+            0%, 100% { transform: rotate(-15deg); }
+            50% { transform: rotate(15deg); }
+        }
+        @keyframes catShadow {
+            0%, 100% { transform: scaleX(1); opacity: 0.3; }
+            50% { transform: scaleX(0.7); opacity: 0.15; }
+        }
+        @keyframes catBlink {
+            0%, 45%, 55%, 100% { transform: scaleY(1); }
+            50% { transform: scaleY(0.1); }
+        }
+        @keyframes catCaptionFade {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 0.3; }
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container { padding: 20px; }
+            .form-grid { grid-template-columns: 1fr; }
+            .pipeline-visual { flex-wrap: wrap; }
+            .form-card { padding: 24px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <div class="logo">Caseorium</div>
+    <div class="logo-sub">AI Case Study Pipeline</div>
+</div>
+
+<div class="container">
+
+    <!-- STEP 1: Input -->
+    <div id="step-input" class="step active">
+        <div class="form-card">
+            <div class="form-title">Новый кейс</div>
+            <div class="form-subtitle">Загрузи видео или ссылку — агенты сделают остальное</div>
+
+            <form id="pipeline-form" class="form-grid">
+                <div class="form-group full">
+                    <label>YouTube URL</label>
+                    <input type="url" id="youtube_url" name="youtube_url"
+                           placeholder="https://youtube.com/watch?v=...">
+                </div>
+
+                <div class="form-group">
+                    <label>Название компании</label>
+                    <input type="text" id="company_name" name="company_name"
+                           placeholder="T-Bank, Aviasales...">
+                </div>
+
+                <div class="form-group">
+                    <label>Метод транскрипции</label>
+                    <select id="method" name="method">
+                        <option value="youtube">YouTube Captions (бесплатно)</option>
+                        <option value="deepgram">Deepgram (высокое качество)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Презентация (PDF)</label>
+                    <div class="file-input" id="slides-drop">
+                        <input type="file" id="slides" name="slides" accept=".pdf">
+                        <div class="file-label">Перетащи PDF или нажми</div>
+                        <div class="file-name" id="slides-name"></div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Фото спикера</label>
+                    <div class="file-input" id="photo-drop">
+                        <input type="file" id="speaker_photo" name="speaker_photo" accept="image/*">
+                        <div class="file-label">Перетащи фото или нажми</div>
+                        <div class="file-name" id="photo-name"></div>
+                    </div>
+                </div>
+            </form>
+
+            <div class="form-actions">
+                <button class="btn btn-primary" id="btn-start" onclick="startPipeline()">
+                    Запустить пайплайн
+                </button>
+                <button class="btn btn-outline" onclick="loadLatest()">
+                    Загрузить последний кейс
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- STEP 2: Progress -->
+    <div id="step-progress" class="step">
+        <div class="pipeline-visual" id="pipeline-nodes">
+            <!-- Generated by JS -->
+        </div>
+
+        <div class="progress-status">
+            <h2 id="progress-title">Запуск пайплайна...</h2>
+            <p id="progress-subtitle">Агенты начинают работу</p>
+        </div>
+
+        <div class="dancing-cat" id="dancing-cat">
+            <div class="cat-body">
+                <div class="cat-head">
+                    <div class="cat-ear cat-ear-l"></div>
+                    <div class="cat-ear cat-ear-r"></div>
+                    <div class="cat-face">
+                        <div class="cat-eye cat-eye-l"></div>
+                        <div class="cat-eye cat-eye-r"></div>
+                        <div class="cat-mouth"></div>
+                    </div>
+                </div>
+                <div class="cat-torso"></div>
+                <div class="cat-paw cat-paw-l"></div>
+                <div class="cat-paw cat-paw-r"></div>
+                <div class="cat-tail"></div>
+            </div>
+            <div class="cat-shadow"></div>
+            <div class="cat-caption" id="cat-caption">пишу кейс, не мешай мяу</div>
+        </div>
+
+        <div class="progress-log" id="progress-log"></div>
+    </div>
+
+    <!-- STEP 3: Editor -->
+    <div id="step-editor" class="step">
+        <div class="editor-header">
+            <h2>Редактирование кейса</h2>
+            <div class="editor-stats">
+                <span>Стоимость: <span class="stat-value" id="stat-cost">$0.00</span></span>
+                <span>Слов: <span class="stat-value" id="stat-words">0</span></span>
+            </div>
+        </div>
+
+        <div class="case-editor">
+            <div class="editor-toolbar">
+                <button class="toolbar-btn" id="btn-mode-edit" onclick="setEditorMode('edit')">Код</button>
+                <button class="toolbar-btn active" id="btn-mode-split" onclick="setEditorMode('split')">Split</button>
+                <button class="toolbar-btn" id="btn-mode-preview" onclick="setEditorMode('preview')">Превью</button>
+                <div class="toolbar-sep"></div>
+                <button class="toolbar-btn" onclick="insertAtCursor('# ')" data-tip="Заголовок H1 — категория">H1</button>
+                <button class="toolbar-btn" onclick="insertAtCursor('## ')" data-tip="Заголовок H2 — секция">H2</button>
+                <button class="toolbar-btn" onclick="insertAtCursor('### ')" data-tip="Заголовок H3 — подсекция">H3</button>
+                <div class="toolbar-sep"></div>
+                <button class="toolbar-btn" onclick="wrapSelection('**')" data-tip="Жирный  Cmd+B"><b>B</b></button>
+                <button class="toolbar-btn" onclick="wrapSelection('*')" data-tip="Курсив  Cmd+I"><i>I</i></button>
+                <button class="toolbar-btn" onclick="wrapSelection('`')" data-tip="Инлайн-код">&lt;/&gt;</button>
+                <div class="toolbar-sep"></div>
+                <button class="toolbar-btn" onclick="insertAtCursor('> ')" data-tip="Цитата спикера">&#8220;</button>
+                <button class="toolbar-btn" onclick="insertAtCursor('- ')" data-tip="Маркированный список">&#8226;</button>
+                <button class="toolbar-btn" onclick="insertAtCursor('---\n')" data-tip="Горизонтальный разделитель">&#8212;</button>
+                <button class="toolbar-btn" onclick="insertLink()" data-tip="Вставить ссылку  Cmd+K">Link</button>
+                <button class="toolbar-btn" onclick="insertIllustration()" data-tip="Маркер иллюстрации [SLIDE]">Slide</button>
+                <div class="toolbar-sep"></div>
+                <button class="toolbar-btn" onclick="undoEdit()" data-tip="Отменить  Cmd+Z">&#8617;</button>
+                <button class="toolbar-btn" onclick="redoEdit()" data-tip="Повторить  Cmd+Shift+Z">&#8618;</button>
+                <span class="toolbar-hint">Markdown</span>
+            </div>
+            <div class="split-pane mode-split" id="split-pane">
+                <div class="pane-edit">
+                    <textarea class="editor-textarea" id="editor-textarea"
+                              placeholder="Текст кейса появится здесь..."></textarea>
+                </div>
+                <div class="pane-preview">
+                    <div class="editor-preview" id="editor-preview"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="editor-actions">
+            <button class="btn btn-outline" onclick="saveEdits()">Сохранить</button>
+            <button class="btn btn-green" onclick="publishToWP()">Верстать на WordPress</button>
+            <button class="btn btn-outline" onclick="resetForm()">Новый кейс</button>
+        </div>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const STAGES = [
+    {id: 'transcriber', name: 'Транскрипция'},
+    {id: 'analyst', name: 'Анализ'},
+    {id: 'writer', name: 'Написание'},
+    {id: 'editor', name: 'Редактура'},
+    {id: 'publisher', name: 'Публикация'},
+];
+
+let currentJobId = null;
+let eventSource = null;
+
+// File input labels
+document.getElementById('slides').addEventListener('change', function() {
+    const name = this.files[0]?.name;
+    if (name) {
+        document.getElementById('slides-name').textContent = name;
+        document.getElementById('slides-name').style.display = 'block';
+    }
+});
+document.getElementById('speaker_photo').addEventListener('change', function() {
+    const name = this.files[0]?.name;
+    if (name) {
+        document.getElementById('photo-name').textContent = name;
+        document.getElementById('photo-name').style.display = 'block';
+    }
+});
+
+function showStep(stepId) {
+    document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+    document.getElementById('step-' + stepId).classList.add('active');
+}
+
+function showToast(msg, isError = false) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast show' + (isError ? ' error' : '');
+    setTimeout(() => t.className = 'toast', 3000);
+}
+
+function buildPipelineNodes() {
+    const container = document.getElementById('pipeline-nodes');
+    container.innerHTML = '';
+    STAGES.forEach((stage, i) => {
+        if (i > 0) {
+            const conn = document.createElement('div');
+            conn.className = 'stage-connector';
+            conn.id = `conn-${i}`;
+            container.appendChild(conn);
+        }
+        const node = document.createElement('div');
+        node.className = 'stage-node';
+        node.id = `stage-${i}`;
+        node.innerHTML = `${i + 1}<div class="stage-label">${stage.name}</div>`;
+        container.appendChild(node);
+    });
+}
+
+function updateStage(stageIdx) {
+    for (let i = 0; i < STAGES.length; i++) {
+        const node = document.getElementById(`stage-${i}`);
+        const conn = document.getElementById(`conn-${i}`);
+        if (i < stageIdx) {
+            node.className = 'stage-node done';
+            if (conn) conn.className = 'stage-connector done';
+        } else if (i === stageIdx) {
+            node.className = 'stage-node active';
+        } else {
+            node.className = 'stage-node';
+            if (conn) conn.className = 'stage-connector';
+        }
+    }
+    document.getElementById('progress-title').textContent = STAGES[stageIdx]?.name || 'Обработка...';
+    document.getElementById('progress-subtitle').textContent = `Этап ${stageIdx + 1} из ${STAGES.length}`;
+
+    const catPhrases = [
+        'расшифровываю видео мяу...',
+        'анализирую факты ньям...',
+        'пишу кейс, не мешай мяу',
+        'редактирую, убираю воду мрр...',
+        'верстаю на вордпресс муррр!',
+    ];
+    const cap = document.getElementById('cat-caption');
+    if (cap) cap.textContent = catPhrases[stageIdx] || 'работаю мяу...';
+}
+
+function addLog(text) {
+    const log = document.getElementById('progress-log');
+    const time = new Date().toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+    log.innerHTML += `<div class="log-entry"><span class="time">${time}</span> ${text}</div>`;
+    log.scrollTop = log.scrollHeight;
+}
+
+async function startPipeline() {
+    const form = document.getElementById('pipeline-form');
+    const formData = new FormData(form);
+
+    const url = formData.get('youtube_url');
+    if (!url) {
+        showToast('Введи YouTube URL', true);
+        return;
+    }
+
+    const btn = document.getElementById('btn-start');
+    btn.disabled = true;
+    btn.textContent = 'Запускаем...';
+
+    try {
+        const resp = await fetch('/api/run', { method: 'POST', body: formData });
+        const data = await resp.json();
+        currentJobId = data.job_id;
+
+        showStep('progress');
+        buildPipelineNodes();
+        addLog('Pipeline started, job: ' + currentJobId);
+
+        // Connect SSE
+        connectSSE(currentJobId);
+
+    } catch (e) {
+        showToast('Ошибка запуска: ' + e.message, true);
+        btn.disabled = false;
+        btn.textContent = 'Запустить пайплайн';
+    }
+}
+
+function connectSSE(jobId) {
+    eventSource = new EventSource(`/api/status/${jobId}`);
+
+    eventSource.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'stage') {
+            updateStage(data.stage);
+            addLog(`<span class="stage-name">${data.name}</span> started`);
+        }
+
+        if (data.type === 'progress') {
+            updateStage(data.stage);
+        }
+
+        if (data.type === 'complete') {
+            eventSource.close();
+
+            if (data.success && data.case_text) {
+                // Mark all stages done
+                for (let i = 0; i < STAGES.length; i++) {
+                    const node = document.getElementById(`stage-${i}`);
+                    if (node) node.className = 'stage-node done';
+                    const conn = document.getElementById(`conn-${i}`);
+                    if (conn) conn.className = 'stage-connector done';
+                }
+
+                addLog('Pipeline complete!');
+
+                // Show editor
+                setTimeout(() => {
+                    showStep('editor');
+                    document.getElementById('editor-textarea').value = data.case_text;
+                    document.getElementById('stat-cost').textContent = '$' + (data.cost_usd || 0).toFixed(2);
+                    updateWordCount();
+                    refreshPreview();
+                }, 1000);
+            } else {
+                addLog('ERROR: ' + (data.error || 'Unknown error'));
+                document.getElementById('progress-title').textContent = 'Ошибка';
+                document.getElementById('progress-subtitle').textContent = data.error || 'Pipeline failed';
+                showToast('Pipeline failed: ' + (data.error || ''), true);
+            }
+        }
+
+        if (data.type === 'error') {
+            addLog('ERROR: ' + data.message);
+        }
+    };
+
+    eventSource.onerror = function() {
+        addLog('Connection lost, reconnecting...');
+    };
+}
+
+function updateWordCount() {
+    const text = document.getElementById('editor-textarea').value;
+    const words = text.split(/\s+/).filter(w => w.length > 0).length;
+    document.getElementById('stat-words').textContent = words.toLocaleString('ru-RU');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const textarea = document.getElementById('editor-textarea');
+    if (textarea) {
+        textarea.addEventListener('input', () => {
+            updateWordCount();
+            if (editorMode !== 'edit') schedulePreview();
+        });
+        // Sync scroll
+        textarea.addEventListener('scroll', () => {
+            const preview = document.getElementById('editor-preview');
+            if (!preview || editorMode !== 'split') return;
+            const ratio = textarea.scrollTop / (textarea.scrollHeight - textarea.clientHeight || 1);
+            preview.scrollTop = ratio * (preview.scrollHeight - preview.clientHeight);
+        });
+        // Keyboard shortcuts
+        textarea.addEventListener('keydown', (e) => {
+            if (e.metaKey || e.ctrlKey) {
+                if (e.key === 'b') { e.preventDefault(); wrapSelection('**'); }
+                if (e.key === 'i') { e.preventDefault(); wrapSelection('*'); }
+                if (e.key === 's') { e.preventDefault(); saveEdits(); }
+                if (e.key === 'k') { e.preventDefault(); insertLink(); }
+            }
+            // Tab → 2 spaces
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                document.execCommand('insertText', false, '  ');
+            }
+        });
+    }
+});
+
+let editorMode = 'split';
+let previewTimer = null;
+
+function setEditorMode(mode) {
+    editorMode = mode;
+    const pane = document.getElementById('split-pane');
+    pane.className = 'split-pane mode-' + mode;
+    document.querySelectorAll('.editor-toolbar .toolbar-btn').forEach(b => {
+        if (b.id && b.id.startsWith('btn-mode-')) b.classList.remove('active');
+    });
+    const btn = document.getElementById('btn-mode-' + mode);
+    if (btn) btn.classList.add('active');
+    if (mode !== 'edit') refreshPreview();
+}
+
+function refreshPreview() {
+    const md = document.getElementById('editor-textarea').value;
+    document.getElementById('editor-preview').innerHTML = markdownToHtml(md);
+}
+
+function schedulePreview() {
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(refreshPreview, 200);
+}
+
+function insertAtCursor(text) {
+    const ta = document.getElementById('editor-textarea');
+    ta.focus();
+    // Use execCommand for undo support
+    const start = ta.selectionStart;
+    const lineStart = ta.value.lastIndexOf('\n', start - 1) + 1;
+    ta.selectionStart = lineStart;
+    document.execCommand('insertText', false, text + ta.value.slice(lineStart, start));
+    ta.selectionStart = ta.selectionEnd = lineStart + text.length;
+    schedulePreview();
+    updateWordCount();
+}
+
+function wrapSelection(wrapper) {
+    const ta = document.getElementById('editor-textarea');
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const selected = ta.value.slice(start, end);
+    if (!selected) return;
+    ta.focus();
+    document.execCommand('insertText', false, wrapper + selected + wrapper);
+    ta.selectionStart = start + wrapper.length;
+    ta.selectionEnd = end + wrapper.length;
+    schedulePreview();
+    updateWordCount();
+}
+
+function insertLink() {
+    const ta = document.getElementById('editor-textarea');
+    const selected = ta.value.slice(ta.selectionStart, ta.selectionEnd);
+    const text = selected || 'текст ссылки';
+    ta.focus();
+    document.execCommand('insertText', false, `[${text}](https://)`);
+    // Position cursor at URL
+    const urlStart = ta.selectionStart - 1;
+    ta.selectionStart = urlStart - 8;
+    ta.selectionEnd = urlStart;
+    schedulePreview();
+}
+
+function insertIllustration() {
+    const ta = document.getElementById('editor-textarea');
+    ta.focus();
+    document.execCommand('insertText', false, '\n`[ИЛЛЮСТРАЦИЯ: Описание визуала. Источник: слайд #N. Действие: запросить/перерисовать]`\n');
+    schedulePreview();
+}
+
+function undoEdit() {
+    document.getElementById('editor-textarea').focus();
+    document.execCommand('undo');
+    schedulePreview();
+    updateWordCount();
+}
+
+function redoEdit() {
+    document.getElementById('editor-textarea').focus();
+    document.execCommand('redo');
+    schedulePreview();
+    updateWordCount();
+}
+
+function markdownToHtml(md) {
+    if (!md) return '';
+    let html = '';
+    const lines = md.split('\n');
+    let inDesignBlock = false;
+    let inTldr = false;
+    let inList = false;
+
+    for (let i = 0; i < lines.length; i++) {
+        let line = lines[i];
+
+        // Design block — skip entirely in preview (kept in markdown for backend)
+        if (/^## Для дизайна/i.test(line)) {
+            inDesignBlock = true;
+            continue;
+        }
+        if (inDesignBlock) {
+            if (/^##[^#]/.test(line) || /^### TLDR/.test(line)) {
+                inDesignBlock = false;
+                // fall through to process this line
+            } else {
+                continue;
+            }
+        }
+
+        // TLDR block — skip entirely in preview (kept in markdown for backend)
+        if (/^### TLDR/.test(line)) {
+            inTldr = true;
+            continue;
+        }
+        if (inTldr) {
+            if (/^##/.test(line)) {
+                inTldr = false;
+                // fall through
+            } else {
+                continue;
+            }
+        }
+
+        // Close list if needed
+        if (inList && !/^\s*[-*] /.test(line)) {
+            html += '</ul>';
+            inList = false;
+        }
+
+        // Illustration markers
+        if (/\[ИЛЛЮСТРАЦИЯ:/.test(line)) {
+            const match = line.match(/\[ИЛЛЮСТРАЦИЯ:\s*(.+?)\]/);
+            if (match) {
+                html += '<div class="illust-marker">' + match[1] + '</div>';
+                continue;
+            }
+        }
+
+        // Headings
+        if (/^# (.+)$/.test(line)) {
+            html += '<h1>' + line.slice(2) + '</h1>';
+            continue;
+        }
+        if (/^## (.+)$/.test(line)) {
+            html += '<h2>' + inline(line.slice(3)) + '</h2>';
+            continue;
+        }
+        if (/^### (.+)$/.test(line)) {
+            html += '<h3>' + inline(line.slice(4)) + '</h3>';
+            continue;
+        }
+
+        // Blockquote
+        if (/^> (.+)$/.test(line)) {
+            html += '<blockquote>' + inline(line.slice(2)) + '</blockquote>';
+            continue;
+        }
+
+        // List items
+        if (/^\s*[-*] (.+)$/.test(line)) {
+            if (!inList) { html += '<ul>'; inList = true; }
+            html += '<li>' + inline(line.replace(/^\s*[-*] /, '')) + '</li>';
+            continue;
+        }
+
+        // Empty line
+        if (!line.trim()) {
+            continue;
+        }
+
+        // Regular paragraph
+        html += '<p>' + inline(line) + '</p>';
+    }
+
+    // Close open blocks
+    if (inList) html += '</ul>';
+
+    return html;
+}
+
+function inline(text) {
+    return text
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>')
+        .replace(/`(.+?)`/g, '<code style="background:var(--surface2);padding:2px 6px;border-radius:3px;font-size:13px">$1</code>')
+        .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" style="color:var(--accent2)">$1</a>');
+}
+
+async function saveEdits() {
+    if (!currentJobId) return;
+
+    const text = document.getElementById('editor-textarea').value;
+    const formData = new FormData();
+    formData.append('text', text);
+
+    try {
+        const resp = await fetch(`/api/save/${currentJobId}`, { method: 'POST', body: formData });
+        const data = await resp.json();
+        if (data.success) {
+            showToast('Сохранено');
+        } else {
+            showToast('Ошибка: ' + (data.error || ''), true);
+        }
+    } catch (e) {
+        showToast('Ошибка сохранения', true);
+    }
+}
+
+async function publishToWP() {
+    if (!currentJobId) return;
+
+    const btn = event.target;
+    btn.disabled = true;
+    btn.textContent = 'Публикуем...';
+
+    try {
+        // Save edits first
+        const text = document.getElementById('editor-textarea').value;
+        const saveData = new FormData();
+        saveData.append('text', text);
+        await fetch(`/api/save/${currentJobId}`, { method: 'POST', body: saveData });
+
+        // Publish
+        const resp = await fetch(`/api/publish/${currentJobId}`, { method: 'POST' });
+        const data = await resp.json();
+
+        if (data.success) {
+            showToast('Опубликовано на WordPress!');
+            btn.textContent = 'Опубликовано';
+
+            // Show links
+            if (data.edit_url) {
+                btn.onclick = () => window.open(data.edit_url, '_blank');
+                btn.textContent = 'Открыть в WordPress';
+                btn.disabled = false;
+            }
+        } else {
+            showToast('Ошибка: ' + (data.error || ''), true);
+            btn.disabled = false;
+            btn.textContent = 'Верстать на WordPress';
+        }
+    } catch (e) {
+        showToast('Ошибка публикации', true);
+        btn.disabled = false;
+        btn.textContent = 'Верстать на WordPress';
+    }
+}
+
+async function loadLatest() {
+    try {
+        const resp = await fetch('/api/load-latest');
+        const data = await resp.json();
+        if (data.success) {
+            currentJobId = data.job_id;
+            showStep('editor');
+            document.getElementById('editor-textarea').value = data.case_text;
+            document.getElementById('stat-cost').textContent = 'loaded';
+            updateWordCount();
+            refreshPreview();
+            showToast('Кейс загружен: ' + data.file.split('/').pop());
+        } else {
+            showToast(data.error || 'Нет готовых кейсов', true);
+        }
+    } catch (e) {
+        showToast('Ошибка: ' + e.message, true);
+    }
+}
+
+function resetForm() {
+    currentJobId = null;
+    if (eventSource) eventSource.close();
+    document.getElementById('pipeline-form').reset();
+    document.getElementById('slides-name').style.display = 'none';
+    document.getElementById('photo-name').style.display = 'none';
+    document.getElementById('progress-log').innerHTML = '';
+    document.getElementById('editor-textarea').value = '';
+    document.getElementById('btn-start').disabled = false;
+    document.getElementById('btn-start').textContent = 'Запустить пайплайн';
+    showStep('input');
+}
+</script>
+
+</body>
+</html>

@@ -412,12 +412,15 @@ def build_sections(data: dict, slides_dir: str = None, wp_client=None) -> list:
             return None
         if num in uploaded_slides:
             return uploaded_slides[num]
+        # Try both naming conventions: slide_01.png and slide-01.png
         slide_path = Path(slides_dir) / f"slide_{int(num):02d}.png"
+        if not slide_path.exists():
+            slide_path = Path(slides_dir) / f"slide-{int(num):02d}.png"
         if not slide_path.exists():
             print(f"  Slide not found: {slide_path}")
             return None
         print(f"  Uploading slide {num}...")
-        result = wp_client.upload_image(str(slide_path), f"tbank_slide_{num}.png")
+        result = wp_client.upload_image(str(slide_path), f"slide_{num}.png")
         if result:
             uploaded_slides[num] = result['id']
             return result['id']
