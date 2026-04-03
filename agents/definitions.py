@@ -171,11 +171,60 @@ ILLUSTRATIONS:
 - ONLY schemas, screenshots, roadmaps. NOT text-only or metrics-only slides.
 - Caption: max 1 line, capitalized.
 - Two problems side by side: use **Проблема 1:** / **Проблема 2:** format.
-- Steps: use ### without "Шаг N:" prefix. Max 1-2 sentences per step.
 
 METRICS BLOCK:
 - Goes BEFORE text conclusions.
 - Format: **number**\\ndescription
+
+RICH BLOCKS (CRITICAL — these make the case visually rich in WordPress):
+Use these markdown markers to create visual blocks. Aim for 4-8 rich blocks per case.
+
+1. :::columns — card grid (2-4 cards) for metrics, comparisons, parallel ideas:
+   :::columns Optional Block Title
+   ### Metric or Short Title
+   1-2 sentence description
+
+   ### Another Metric
+   Description
+   :::
+
+2. :::accent — highlighted block with background for key insights (max 2-3 per case):
+   :::accent
+   Key insight or important conclusion text here.
+   :::
+
+3. :::steps — numbered process steps (numbers auto-generated, do NOT add "Шаг N:"):
+   :::steps
+   ### Step Title
+   1-2 sentences describing the step.
+
+   ### Next Step Title
+   Description.
+   :::
+
+4. :::list — structured list with titled items (for projects, scenarios, departments):
+   :::list Title of the List
+   ### Item Title
+   - Detail point 1
+   - Detail point 2
+   :::
+
+5. > quote text — blockquote highlight (literary style, NOT colloquial)
+
+6. :::tech — tech stack for running line (only if 3+ specific tools):
+   :::tech
+   T-Pro 32B, SFT, Kubernetes, RAGAS
+   :::
+
+DISTRIBUTION GUIDE:
+- 1-2 :::columns blocks (metrics section + one comparison/features block)
+- 1 :::steps block (if process has clear sequential stages)
+- 1-2 :::accent blocks (only for THE most important insights)
+- 1-2 > blockquotes (speaker insights, reformulated to literary style)
+- 0-1 :::list block (if there are named items with details)
+- 0-1 :::tech block (only if 3+ specific named tools)
+
+DO NOT overuse rich blocks. Plain text (custom_text) remains the foundation.
 
 USE ONLY facts from the analysis files. If data is missing, mark [уточнить].
 Do NOT invent numbers, quotes, or technical details.
@@ -233,10 +282,24 @@ PASS 3 — FINAL FORMAT (Stage E):
 - Bold ONLY numbers and metrics. NOT descriptive phrases, NOT philosophy, NOT approach names
 - Company description: strip all ** bold markers
 - Blockquote highlights: literary style, NOT colloquial. Remove "вот", "ну", "как бы"
-- Steps (### headings): remove "Шаг N:" prefix, max 1-2 sentences per step
+- Steps in :::steps blocks: remove "Шаг N:" prefix, max 1-2 sentences per step
 - Two parallel problems: format as **Проблема 1:** / **Проблема 2:**
 - Metrics block: BEFORE text conclusions, not after
 - Run the full checklist from engine/02_case_writing_rules.md AND engine/wp_layout_rules.md
+
+RICH BLOCKS VALIDATION (part of Pass 3):
+Verify the draft uses rich block markers (:::columns, :::accent, :::steps, :::list) properly:
+- Case should have 4-8 rich blocks total (not just plain text everywhere)
+- :::columns used for metrics/comparisons (2-4 cards with short titles + descriptions)
+- :::accent used for 1-2 key insights (max 2-3 sentences each)
+- :::steps used for sequential processes (numbers auto-generated)
+- :::list used for structured enumerations with named items
+- > blockquotes for speaker quotes (literary style)
+- :::tech for tech stack (only if 3+ specific named tools)
+- All ::: blocks must be properly closed with :::
+- DO NOT over-use rich blocks — plain text remains the foundation
+If the writer missed opportunities for rich blocks, ADD them where appropriate.
+If rich blocks are overused or malformed, FIX them.
 
 SEO VALIDATION (part of Pass 3 — critical for Rank Math score):
 Read engine/seo_checklist.md and validate:

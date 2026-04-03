@@ -255,9 +255,9 @@ def md_section_to_html(content: str) -> str:
                 in_list = False
             continue
 
-        # Blockquote
-        if stripped.startswith('> '):
-            quote_text = stripped[2:]
+        # Blockquote — handle both '> text' and bare '>'
+        if stripped == '>' or stripped.startswith('> '):
+            quote_text = stripped[2:] if stripped.startswith('> ') else ''
             if not in_blockquote:
                 html_lines.append('<blockquote>')
                 in_blockquote = True
@@ -274,10 +274,10 @@ def md_section_to_html(content: str) -> str:
             html_lines.append(f'<li>{_inline_md(stripped[2:])}</li>')
             continue
 
-        # Illustration marker — convert to comment/placeholder
+        # Illustration marker — hidden HTML comment, not visible
         if stripped.startswith('`[ИЛЛЮСТРАЦИЯ:') or stripped.startswith('[ИЛЛЮСТРАЦИЯ:'):
             clean = stripped.strip('`[]')
-            html_lines.append(f'<p style="color: #e67e22; font-style: italic;">[{clean}]</p>')
+            html_lines.append(f'<!-- {clean} -->')
             continue
 
         # H3 subheading
@@ -285,8 +285,8 @@ def md_section_to_html(content: str) -> str:
             html_lines.append(f'<h3>{_inline_md(stripped[4:])}</h3>')
             continue
 
-        # Regular paragraph
-        html_lines.append(f'<p>{_inline_md(stripped)}</p>')
+        # Regular paragraph with bottom margin for spacing
+        html_lines.append(f'<p style="margin-bottom: 16px;">{_inline_md(stripped)}</p>')
 
     if in_blockquote:
         html_lines.append('</blockquote>')
@@ -338,8 +338,11 @@ class WordPressClient:
         acf['описание_под_заголовком'] = data.get('company_description', '')
 
         db = data.get('design_block', {})
-        acf['заголовок_для_карточки_кейса'] = db.get('card_title', data.get('h1_title', ''))
-        acf['описание_для_карточки_кейса'] = db.get('description', '')
+        # card_title may have two lines: first = breadcrumb, second = subtitle
+        card_title_raw = db.get('card_title', data.get('h1_title', ''))
+        card_lines = [l.strip() for l in card_title_raw.split('\n') if l.strip()]
+        acf['заголовок_для_карточки_кейса'] = card_lines[0] if card_lines else ''
+        acf['описание_для_карточки_кейса'] = card_lines[1] if len(card_lines) > 1 else db.get('description', '')
 
         # Authors (repeater with acf_fc_layout) — parse from design block
         # Note: авторы_кейса requires acf_fc_layout field
@@ -355,13 +358,22 @@ class WordPressClient:
         """Convert parsed markdown sections to ACF Flexible Content array."""
         sections = []
 
-        # TLDR as first text section
+        # Tech stack running line (if present in design block or extracted)
+        tech_items = self._extract_tech_stack(data)
+        if tech_items:
+            sections.append({
+                'acf_fc_layout': 'layer_running_line',
+                'отступ_сверху_секции': '0',
+                'отступ_снизу_секции': '0',
+                'бегущая_строка': [{'текст': t} for t in tech_items],
+            })
+
+        # TLDR as note_text (green-bordered block)
         if data.get('tldr'):
             sections.append({
-                'acf_fc_layout': 'custom_text',
+                'acf_fc_layout': 'note_text',
                 'отступ_сверху_секции': '64',
                 'отступ_снизу_секции': '64',
-                'заголовок': '',
                 'текст': md_section_to_html(data['tldr']),
             })
 
@@ -389,15 +401,17 @@ class WordPressClient:
         return sections
 
     def _split_section_by_type(self, title: str, content: str) -> list:
-        """Split a markdown section into ACF section blocks by content type."""
+        """Split a markdown section into ACF section blocks by content type.
+
+        Handles rich block markers (:::columns, :::accent, :::steps, :::list)
+        as well as blockquotes and metrics blocks.
+        """
         results = []
-        current_text_lines = []
 
         # Check if this is a "Ключевые результаты" metrics block
         if re.search(r'ключевые результаты|итоги', title, re.IGNORECASE):
             metrics = self._extract_metrics(content)
             if metrics:
-                # Add text part if any non-metric content exists
                 text_before = self._extract_text_before_metrics(content)
                 if text_before.strip():
                     results.append({
@@ -407,32 +421,310 @@ class WordPressClient:
                         'заголовок': title,
                         'текст': md_section_to_html(text_before),
                     })
-                # Metrics as styled HTML in custom_text
-                # (layer_columns requires nested acf_fc_layout — use text block instead)
-                metrics_html_parts = []
+                # Metrics as layer_columns with green headers
+                columns = []
                 for metric in metrics:
-                    metrics_html_parts.append(
-                        f'<p><strong style="color: #24DD63; font-size: 1.5em;">'
-                        f'{metric["number"]}</strong><br>{metric["description"]}</p>'
-                    )
+                    columns.append({
+                        'acf_fc_layout': '',
+                        'заголовок_иконка': 'Заголовок',
+                        'заголовок': metric['number'],
+                        'цвет_заголовка': '#24DD63',
+                        'размер_заголовка': 'large',
+                        'текст': metric['description'],
+                    })
                 results.append({
-                    'acf_fc_layout': 'custom_text',
+                    'acf_fc_layout': 'layer_columns',
                     'отступ_сверху_секции': '32',
                     'отступ_снизу_секции': '64',
-                    'заголовок': 'Ключевые результаты проекта',
-                    'текст': '\n'.join(metrics_html_parts),
+                    'заголовок_блока_с_колонками': 'Ключевые результаты проекта',
+                    'подзаголовок_блока_с_колонками': '',
+                    'колонки': columns,
                 })
                 return results
 
-        # Process line by line to extract blockquotes as note_text
+        # Split content into segments: plain text vs rich blocks (:::type ... :::)
+        segments = self._split_rich_blocks(content)
+
+        for seg_type, seg_content in segments:
+            if seg_type == 'columns':
+                block = self._parse_columns_block(seg_content)
+                results.append(block)
+            elif seg_type == 'accent':
+                block = self._parse_accent_block(seg_content)
+                results.append(block)
+            elif seg_type == 'steps':
+                block = self._parse_steps_block(seg_content)
+                results.append(block)
+            elif seg_type == 'list':
+                block = self._parse_list_block(seg_content)
+                results.append(block)
+            elif seg_type == 'text':
+                # Process plain text with blockquote extraction
+                text_blocks = self._process_text_with_blockquotes(
+                    seg_content, title if not results else ''
+                )
+                if text_blocks:
+                    if not results and text_blocks:
+                        # First block gets the section title
+                        pass  # title already passed above
+                    results.extend(text_blocks)
+                    title = ''  # Title consumed
+
+        if not results:
+            results.append({
+                'acf_fc_layout': 'custom_text',
+                'отступ_сверху_секции': '64',
+                'отступ_снизу_секции': '64',
+                'заголовок': title,
+                'текст': md_section_to_html(content),
+            })
+
+        return results
+
+    def _split_rich_blocks(self, content: str) -> list:
+        """Split content into (type, content) segments.
+
+        Rich blocks are delimited by :::type ... :::
+        Everything else is 'text'.
+        """
+        segments = []
         lines = content.split('\n')
-        in_blockquote = False
-        quote_lines = []
+        current_text = []
+        in_block = False
+        block_type = ''
+        block_lines = []
 
         for line in lines:
             stripped = line.strip()
 
-            if stripped.startswith('> '):
+            # Opening marker: :::columns, :::accent, :::steps, :::list
+            if not in_block and re.match(r'^:::(columns|accent|steps|list)', stripped):
+                # Flush accumulated text
+                if current_text:
+                    text = '\n'.join(current_text).strip()
+                    if text:
+                        segments.append(('text', text))
+                    current_text = []
+
+                match = re.match(r'^:::(columns|accent|steps|list)\s*(.*)', stripped)
+                block_type = match.group(1)
+                # Optional title on the same line
+                block_title = match.group(2).strip() if match.group(2) else ''
+                block_lines = [block_title] if block_title else []
+                in_block = True
+                continue
+
+            # Closing marker
+            if in_block and stripped == ':::':
+                block_content = '\n'.join(block_lines).strip()
+                segments.append((block_type, block_content))
+                block_lines = []
+                block_type = ''
+                in_block = False
+                continue
+
+            if in_block:
+                block_lines.append(line)
+            else:
+                current_text.append(line)
+
+        # Flush remaining text
+        if current_text:
+            text = '\n'.join(current_text).strip()
+            if text:
+                segments.append(('text', text))
+
+        # If block was never closed, treat as text
+        if in_block and block_lines:
+            segments.append(('text', '\n'.join(block_lines).strip()))
+
+        return segments
+
+    def _parse_columns_block(self, content: str) -> dict:
+        """Parse :::columns block into layer_columns ACF layout.
+
+        Format:
+        First line (optional): block title
+        ### Column Title
+        Column description text
+        """
+        lines = content.split('\n')
+        block_title = ''
+        columns = []
+        current_col_title = None
+        current_col_text = []
+
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith('### '):
+                # Flush previous column
+                if current_col_title is not None:
+                    columns.append({
+                        'acf_fc_layout': '',
+                        'заголовок_иконка': 'Заголовок',
+                        'заголовок': current_col_title,
+                        'цвет_заголовка': '#24DD63',
+                        'размер_заголовка': 'large' if re.search(r'\d', current_col_title) else 'normal',
+                        'текст': '\n'.join(current_col_text).strip(),
+                    })
+                    current_col_text = []
+
+                current_col_title = stripped[4:].strip()
+            elif current_col_title is not None:
+                if stripped:
+                    current_col_text.append(stripped)
+            elif stripped and not block_title:
+                # First non-empty non-heading line = block title
+                block_title = stripped
+
+        # Flush last column
+        if current_col_title is not None:
+            columns.append({
+                'acf_fc_layout': '',
+                'заголовок_иконка': 'Заголовок',
+                'заголовок': current_col_title,
+                'цвет_заголовка': '#24DD63',
+                'размер_заголовка': 'large' if re.search(r'\d', current_col_title) else 'normal',
+                'текст': '\n'.join(current_col_text).strip(),
+            })
+
+        return {
+            'acf_fc_layout': 'layer_columns',
+            'отступ_сверху_секции': '32',
+            'отступ_снизу_секции': '32',
+            'заголовок_блока_с_колонками': block_title,
+            'подзаголовок_блока_с_колонками': '',
+            'колонки': columns,
+        }
+
+    def _parse_accent_block(self, content: str) -> dict:
+        """Parse :::accent block into layer_accent_text ACF layout."""
+        lines = content.split('\n')
+        block_title = ''
+        text_lines = []
+
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if not block_title and not text_lines:
+                # Check if first line looks like a title (short, no period)
+                if len(stripped) < 80 and not stripped.endswith('.'):
+                    block_title = stripped
+                else:
+                    text_lines.append(stripped)
+            else:
+                text_lines.append(stripped)
+
+        text_html = '\n'.join(f'<p>{_inline_md(l)}</p>' for l in text_lines if l.strip())
+
+        return {
+            'acf_fc_layout': 'layer_accent_text',
+            'отступ_сверху_секции': '32',
+            'отступ_снизу_секции': '32',
+            'заголовок_блока': block_title,
+            'текст': text_html,
+        }
+
+    def _parse_steps_block(self, content: str) -> dict:
+        """Parse :::steps block into layer_waypoint ACF layout."""
+        steps = []
+        current_title = None
+        current_text = []
+
+        for line in content.split('\n'):
+            stripped = line.strip()
+            if stripped.startswith('### '):
+                if current_title is not None:
+                    steps.append({
+                        'acf_fc_layout': '',
+                        'заголовок': str(len(steps) + 1),
+                        'текст': '\n'.join(current_text).strip(),
+                    })
+                    current_text = []
+                current_title = stripped[4:].strip()
+                # Step title goes into text, number is auto-generated
+                current_text = [current_title]
+                current_title = 'step'
+            elif stripped:
+                current_text.append(stripped)
+
+        if current_title is not None:
+            steps.append({
+                'acf_fc_layout': '',
+                'заголовок': str(len(steps) + 1),
+                'текст': '\n'.join(current_text).strip(),
+            })
+
+        return {
+            'acf_fc_layout': 'layer_waypoint',
+            'отступ_сверху_секции': '32',
+            'отступ_снизу_секции': '32',
+            'шаг': steps,
+        }
+
+    def _parse_list_block(self, content: str) -> dict:
+        """Parse :::list block into layer_list ACF layout."""
+        lines = content.split('\n')
+        block_title = ''
+        items = []
+        current_item_title = None
+        current_item_points = []
+
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith('### '):
+                # Flush previous item
+                if current_item_title is not None:
+                    items.append({
+                        'acf_fc_layout': '',
+                        'заголовок_списка': current_item_title,
+                        'пункт_списка': [
+                            {'acf_fc_layout': '', 'текст': p}
+                            for p in current_item_points
+                        ] if current_item_points else [
+                            {'acf_fc_layout': '', 'текст': ''}
+                        ],
+                    })
+                    current_item_points = []
+                current_item_title = stripped[4:].strip()
+            elif stripped.startswith('- ') and current_item_title is not None:
+                current_item_points.append(stripped[2:].strip())
+            elif stripped and current_item_title is None and not block_title:
+                block_title = stripped
+
+        # Flush last item
+        if current_item_title is not None:
+            items.append({
+                'acf_fc_layout': '',
+                'заголовок_списка': current_item_title,
+                'пункт_списка': [
+                    {'acf_fc_layout': '', 'текст': p}
+                    for p in current_item_points
+                ] if current_item_points else [
+                    {'acf_fc_layout': '', 'текст': ''}
+                ],
+            })
+
+        return {
+            'acf_fc_layout': 'layer_list',
+            'отступ_сверху_секции': '32',
+            'отступ_снизу_секции': '32',
+            'заголовок_блока_со_списком': block_title,
+            'блок_списка': items,
+        }
+
+    def _process_text_with_blockquotes(self, content: str, title: str) -> list:
+        """Process plain text content, extracting blockquotes as note_text blocks."""
+        results = []
+        current_text_lines = []
+        quote_lines = []
+        in_blockquote = False
+
+        for line in content.split('\n'):
+            stripped = line.strip()
+
+            if stripped == '>' or stripped.startswith('> '):
                 if not in_blockquote:
                     # Flush text before blockquote
                     if current_text_lines:
@@ -445,23 +737,23 @@ class WordPressClient:
                                 'заголовок': title if not results else '',
                                 'текст': md_section_to_html(text),
                             })
-                            title = ''  # Title only for first block
+                            title = ''
                         current_text_lines = []
                     in_blockquote = True
 
-                quote_text = stripped[2:].strip()
+                quote_text = stripped[2:].strip() if stripped.startswith('> ') else ''
                 if quote_text and not re.match(r'^\*\*ПЛАШКА', quote_text):
                     quote_lines.append(quote_text)
             else:
                 if in_blockquote:
-                    # Flush blockquote as note_text
                     if quote_lines:
                         clean_quote = ' '.join(quote_lines)
-                        # Remove bold markers
                         clean_quote = re.sub(r'\*\*(.+?)\*\*', r'\1', clean_quote)
                         results.append({
                             'acf_fc_layout': 'note_text',
-                            'текст': clean_quote,
+                            'отступ_сверху_секции': '32',
+                            'отступ_снизу_секции': '32',
+                            'текст': f'<p>{clean_quote}</p>',
                         })
                     quote_lines = []
                     in_blockquote = False
@@ -474,7 +766,9 @@ class WordPressClient:
             clean_quote = re.sub(r'\*\*(.+?)\*\*', r'\1', clean_quote)
             results.append({
                 'acf_fc_layout': 'note_text',
-                'текст': clean_quote,
+                'отступ_сверху_секции': '32',
+                'отступ_снизу_секции': '32',
+                'текст': f'<p>{clean_quote}</p>',
             })
 
         # Flush remaining text
@@ -488,17 +782,29 @@ class WordPressClient:
                 'текст': md_section_to_html(remaining),
             })
 
-        # If nothing was produced, create a basic text section
-        if not results:
-            results.append({
-                'acf_fc_layout': 'custom_text',
-                'отступ_сверху_секции': '64',
-                'отступ_снизу_секции': '64',
-                'заголовок': title,
-                'текст': md_section_to_html(content),
-            })
-
         return results
+
+    def _extract_tech_stack(self, data: dict) -> list:
+        """Extract tech stack items for running line from the case content.
+
+        Looks for :::tech block in sections or extracts from content.
+        """
+        items = []
+        for section in data.get('sections', []):
+            content = section['content']
+            # Look for :::tech blocks
+            match = re.search(r':::tech\s*\n(.*?):::', content, re.DOTALL)
+            if match:
+                raw = match.group(1).strip()
+                # Items can be comma-separated or one per line
+                for part in re.split(r'[,\n]', raw):
+                    part = part.strip().strip('-').strip()
+                    if part:
+                        items.append(part)
+                # Remove the :::tech block from section content
+                section['content'] = content[:match.start()] + content[match.end():]
+
+        return items
 
     def _extract_metrics(self, content: str) -> list:
         """Extract metrics from 'Ключевые результаты' block."""

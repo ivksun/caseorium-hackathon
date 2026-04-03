@@ -1,0 +1,50 @@
+{
+  "architecture": {
+    "id": 1930,
+    "url": "https://testforagents.just-ai.ru/wp-content/uploads/2026/04/lamoda-architecture.png"
+  },
+  "bot-examples-2": {
+    "id": 1931,
+    "url": "https://testforagents.just-ai.ru/wp-content/uploads/2026/04/lamoda-bot-examples-2.png"
+  },
+  "deepseek-404": {
+    "id": 1932,
+    "url": "https://testforagents.just-ai.ru/wp-content/uploads/2026/04/lamoda-deepseek-404.png"
+  },
+  "dialog-flow": {
+    "id": 1933,
+    "url": "https://testforagents.just-ai.ru/wp-content/uploads/2026/04/lamoda-dialog-flow.png"
+  },
+  "model-comparison": {
+    "id": 1934,
+    "url": "https://testforagents.just-ai.ru/wp-content/uploads/2026/04/lamoda-model-comparison.png"
+  },
+  "roadmap": {
+    "id": 1935,
+    "url": "https://testforagents.just-ai.ru/wp-content/uploads/2026/04/lamoda-roadmap.png"
+  },
+  "statham-bot": {
+    "id": 1936,
+    "url": "https://testforagents.just-ai.ru/wp-content/uploads/2026/04/lamoda-statham-bot.png"
+  },
+  "v0-pipeline": {
+    "id": 1937,
+    "url": "https://testforagents.just-ai.ru/wp-content/uploads/2026/04/lamoda-v0-pipeline.png"
+  },
+  "v1-chatbot": {
+    "id": 1938,
+    "url": "https://testforagents.just-ai.ru/wp-content/uploads/2026/04/lamoda-v1-chatbot.png"
+  },
+  "v1-premium": {
+    "id": 1939,
+    "url": "https://testforagents.just-ai.ru/wp-content/uploads/2026/04/lamoda-v1-premium.png"
+  },
+  "vs-gpt5": {
+    "id": 1940,
+    "url": "https://testforagents.just-ai.ru/wp-content/uploads/2026/04/lamoda-vs-gpt5.png"
+  },
+  "why-not-ready-llm": {
+    "id": 1941,
+    "url": "https://testforagents.just-ai.ru/wp-content/uploads/2026/04/lamoda-why-not-ready-llm.png"
+  }
+}
