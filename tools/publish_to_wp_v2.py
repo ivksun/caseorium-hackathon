@@ -177,22 +177,39 @@ def parse_ready_md(filepath: str) -> dict:
     while i < len(lines):
         line = lines[i]
 
-        # Category (first H1)
-        if line.startswith('# ') and not result['category']:
-            result['category'] = line[2:].strip()
+        # First H1: could be category OR main title
+        if line.startswith('# ') and not line.startswith('## ') and not result['h1_title'] and not result['category']:
+            h1_text = line[2:].strip()
             i += 1
+            # If H1 looks like a title (starts with "Как ") — it IS the title
+            # Company description follows until next ## heading
+            if h1_text.lower().startswith('как '):
+                result['h1_title'] = h1_text
+                desc_lines = []
+                while i < len(lines) and not lines[i].startswith('## '):
+                    desc_lines.append(lines[i])
+                    i += 1
+                result['company_description'] = '\n'.join(desc_lines).strip()
+            else:
+                # It's a category (e.g. "# Финансы")
+                result['category'] = h1_text
             continue
 
-        # Main title (first H2)
+        # Main title (first H2, if H1 was category)
         if line.startswith('## ') and not result['h1_title']:
-            result['h1_title'] = line[3:].strip()
-            i += 1
-            desc_lines = []
-            while i < len(lines) and not lines[i].startswith('## '):
-                desc_lines.append(lines[i])
+            h2_text = line[3:].strip()
+            # Skip "Для дизайна:" — it's not the title
+            if h2_text.lower().startswith('для дизайна'):
+                pass  # fall through to design block handler below
+            else:
+                result['h1_title'] = h2_text
                 i += 1
-            result['company_description'] = '\n'.join(desc_lines).strip()
-            continue
+                desc_lines = []
+                while i < len(lines) and not lines[i].startswith('## '):
+                    desc_lines.append(lines[i])
+                    i += 1
+                result['company_description'] = '\n'.join(desc_lines).strip()
+                continue
 
         # Design block
         if line.startswith('## Для дизайна'):
@@ -237,6 +254,10 @@ def parse_ready_md(filepath: str) -> dict:
     result['seo_description'] = db.get('description', '')
     result['seo_keywords'] = db.get('keywords', '')
 
+    # If category is missing, try to get from design block filter
+    if not result['category'] and db.get('filter'):
+        result['category'] = db['filter']
+
     return result
 
 
@@ -276,6 +297,205 @@ def _parse_design_block(text: str) -> dict:
     if current_key:
         block[current_key] = '\n'.join(current_value).strip()
     return block
+
+
+# ---------------------------------------------------------------------------
+# Rich block (:::) parser
+# ---------------------------------------------------------------------------
+
+def parse_rich_blocks(content: str) -> list:
+    """Parse :::type ... ::: blocks from markdown content.
+
+    Returns a list of segments, each either:
+      - {'type': 'text', 'content': '...'} for plain text
+      - {'type': 'columns', 'title': '...', 'cards': [{'title', 'content'}, ...]}
+      - {'type': 'accent', 'content': '...'}
+      - {'type': 'steps', 'steps': [{'title', 'content'}, ...]}
+      - {'type': 'list', 'title': '...', 'items': [{'title', 'points': [...]}, ...]}
+      - {'type': 'tech', 'keywords': ['...', ...]}
+    """
+    segments = []
+    lines = content.split('\n')
+    text_buf = []
+    i = 0
+
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        # Detect opening ::: marker
+        match = re.match(r'^:::(columns|accent|steps|list|tech)\s*(.*)?$', stripped)
+        if match:
+            # Flush text buffer
+            if text_buf:
+                segments.append({'type': 'text', 'content': '\n'.join(text_buf).strip()})
+                text_buf = []
+
+            block_type = match.group(1)
+            block_title = (match.group(2) or '').strip()
+            i += 1
+
+            # Collect lines until closing :::
+            block_lines = []
+            while i < len(lines):
+                if lines[i].strip() == ':::':
+                    i += 1
+                    break
+                block_lines.append(lines[i])
+                i += 1
+
+            block_content = '\n'.join(block_lines)
+
+            if block_type == 'columns':
+                cards = _parse_h3_sections(block_content)
+                segments.append({'type': 'columns', 'title': block_title, 'cards': cards})
+
+            elif block_type == 'accent':
+                segments.append({'type': 'accent', 'content': block_content.strip()})
+
+            elif block_type == 'steps':
+                steps = _parse_h3_sections(block_content)
+                segments.append({'type': 'steps', 'steps': steps})
+
+            elif block_type == 'list':
+                items = _parse_h3_sections(block_content)
+                segments.append({'type': 'list', 'title': block_title, 'items': items})
+
+            elif block_type == 'tech':
+                # Comma-separated or newline-separated keywords
+                raw = block_content.strip()
+                keywords = [k.strip() for k in re.split(r'[,\n]', raw) if k.strip()]
+                segments.append({'type': 'tech', 'keywords': keywords})
+
+            continue
+
+        text_buf.append(line)
+        i += 1
+
+    if text_buf:
+        segments.append({'type': 'text', 'content': '\n'.join(text_buf).strip()})
+
+    return segments
+
+
+def _parse_h3_sections(content: str) -> list:
+    """Parse ### Title / content pairs from a block."""
+    items = []
+    parts = re.split(r'(?=^### )', content, flags=re.MULTILINE)
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        if part.startswith('### '):
+            part_lines = part.split('\n')
+            title = part_lines[0][4:].strip()
+            body = '\n'.join(part_lines[1:]).strip()
+            items.append({'title': title, 'content': body})
+        else:
+            # Text before first ### — treat as content without title
+            items.append({'title': '', 'content': part})
+    return items
+
+
+def rich_block_to_acf(segment: dict) -> dict | None:
+    """Convert a parsed rich block segment to an ACF section dict."""
+    btype = segment['type']
+
+    if btype == 'columns':
+        cards = segment.get('cards', [])
+        if not cards:
+            return None
+        return {
+            'acf_fc_layout': 'layer_columns',
+            'отступ_сверху_секции': '32',
+            'отступ_снизу_секции': '32',
+            'заголовок_блока_с_колонками': segment.get('title', ''),
+            'подзаголовок_блока_с_колонками': '',
+            'колонки': [
+                {
+                    'acf_fc_layout': '',
+                    'заголовок_иконка': 'Заголовок',
+                    'заголовок': c['title'],
+                    'цвет_заголовка': '#24DD63',
+                    'размер_заголовка': 'normal',
+                    'текст': c['content'],
+                }
+                for c in cards
+            ],
+        }
+
+    elif btype == 'accent':
+        return {
+            'acf_fc_layout': 'layer_accent_text',
+            'отступ_сверху_секции': '32',
+            'отступ_снизу_секции': '32',
+            'текст': f'<p>{_inline(segment["content"])}</p>',
+        }
+
+    elif btype == 'steps':
+        steps = segment.get('steps', [])
+        if not steps:
+            return None
+        clean_steps = []
+        for s in steps:
+            title = re.sub(
+                r'^шаг\s+(?:первый|второй|третий|четвертый|пятый|\d+)\s*:\s*',
+                '', s['title'], flags=re.IGNORECASE
+            ).strip()
+            if not title:
+                title = s['title']
+            title = title[0].upper() + title[1:] if title else title
+            text = f'{title}. {s["content"]}' if s['content'] else title
+            clean_steps.append(text)
+        return {
+            'acf_fc_layout': 'layer_waypoint',
+            'отступ_сверху_секции': '32',
+            'отступ_снизу_секции': '32',
+            'шаг': [
+                {
+                    'acf_fc_layout': '',
+                    'заголовок': str(i + 1),
+                    'текст': clean_steps[i],
+                }
+                for i in range(len(clean_steps))
+            ],
+        }
+
+    elif btype == 'list':
+        items = segment.get('items', [])
+        if not items:
+            return None
+        # Render as custom_text with structured list
+        html_parts = []
+        if segment.get('title'):
+            html_parts.append(f'<h3>{_inline(segment["title"])}</h3>')
+        for item in items:
+            if item['title']:
+                html_parts.append(f'<h4>{_inline(item["title"])}</h4>')
+            html_parts.append(md_to_html(item['content']))
+        return {
+            'acf_fc_layout': 'custom_text',
+            'отступ_сверху_секции': '32',
+            'отступ_снизу_секции': '32',
+            'заголовок': '',
+            'текст': '\n'.join(html_parts),
+            'растянуть_колонку_на_всю_ширину_контента': False,
+            'сделать_в_2_колонки': False,
+            '2-я_колонка_текста': '',
+        }
+
+    elif btype == 'tech':
+        keywords = segment.get('keywords', [])
+        if len(keywords) < 3:
+            return None
+        return {
+            'acf_fc_layout': 'layer_running_line',
+            'отступ_сверху_секции': '0',
+            'отступ_снизу_секции': '0',
+            'бегущая_строка': [{'текст': kw} for kw in keywords],
+        }
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -427,15 +647,20 @@ def build_sections(data: dict, slides_dir: str = None, wp_client=None) -> list:
         return None
 
     # --- Running line (tech stack) ---
-    # Only show if there are 3+ specific tools/technologies (not generic terms)
-    tech_keywords = _extract_tech_keywords(data)
-    if len(tech_keywords) >= 3:
-        sections.append({
-            'acf_fc_layout': 'layer_running_line',
-            'отступ_сверху_секции': '0',
-            'отступ_снизу_секции': '0',
-            'бегущая_строка': [{'текст': kw} for kw in tech_keywords],
-        })
+    # Check if any section has explicit :::tech block — if so, skip auto-detection
+    all_content = '\n'.join(s.get('content', '') for s in data.get('sections', []))
+    has_explicit_tech = bool(re.search(r'^:::tech', all_content, re.MULTILINE))
+
+    if not has_explicit_tech:
+        # Auto-detect tech keywords only if writer didn't specify :::tech
+        tech_keywords = _extract_tech_keywords(data)
+        if len(tech_keywords) >= 3:
+            sections.append({
+                'acf_fc_layout': 'layer_running_line',
+                'отступ_сверху_секции': '0',
+                'отступ_снизу_секции': '0',
+                'бегущая_строка': [{'текст': kw} for kw in tech_keywords],
+            })
 
     # NOTE: TLDR block is NOT generated — not supported in WP admin yet.
 
@@ -450,6 +675,73 @@ def build_sections(data: dict, slides_dir: str = None, wp_client=None) -> list:
         clean_content = content
         for m in markers:
             clean_content = clean_content.replace(m['full_match'], '')
+
+        # --- Check for explicit ::: rich blocks first ---
+        has_rich_blocks = bool(re.search(r'^:::(columns|accent|steps|list|tech)', clean_content, re.MULTILINE))
+        if has_rich_blocks:
+            rich_segments = parse_rich_blocks(clean_content)
+            first_text = True
+            has_explicit_tech = False
+            for seg in rich_segments:
+                if seg['type'] == 'text' and seg['content'].strip():
+                    seg_content = seg['content']
+                    # Check if this text segment contains a metrics subsection
+                    has_metrics_sub = bool(re.search(r'### Ключевые результаты', seg_content))
+                    if has_metrics_sub:
+                        parts = re.split(r'### Ключевые результаты.*\n', seg_content)
+                        text_before = parts[0].strip() if parts else ''
+                        metrics_text = parts[1] if len(parts) > 1 else ''
+                        if text_before:
+                            _build_text_section(
+                                sections,
+                                title if first_text else '',
+                                text_before,
+                            )
+                            first_text = False
+                        metrics = _extract_metrics_from_content(metrics_text)
+                        if metrics:
+                            for chunk_start in range(0, len(metrics), 3):
+                                chunk = metrics[chunk_start:chunk_start + 3]
+                                sections.append({
+                                    'acf_fc_layout': 'layer_columns',
+                                    'отступ_сверху_секции': '32' if chunk_start > 0 else '64',
+                                    'отступ_снизу_секции': '32',
+                                    'заголовок_блока_с_колонками': 'Ключевые результаты проекта' if chunk_start == 0 else '',
+                                    'подзаголовок_блока_с_колонками': '',
+                                    'колонки': [
+                                        {
+                                            'acf_fc_layout': '',
+                                            'заголовок_иконка': 'Заголовок',
+                                            'заголовок': m['number'],
+                                            'цвет_заголовка': '#24DD63',
+                                            'размер_заголовка': 'normal',
+                                            'текст': m['description'],
+                                        }
+                                        for m in chunk
+                                    ],
+                                })
+                    else:
+                        _build_text_section(
+                            sections,
+                            title if first_text else '',
+                            seg_content,
+                        )
+                        first_text = False
+                elif seg['type'] != 'text':
+                    if seg['type'] == 'tech':
+                        has_explicit_tech = True
+                    acf_block = rich_block_to_acf(seg)
+                    if acf_block:
+                        sections.append(acf_block)
+                    first_text = False
+
+            # Add illustrations from this section
+            for m in markers:
+                media_id = get_slide_media_id(m['slide_num'])
+                if media_id:
+                    sections.append(_media_block(media_id, m['caption']))
+
+            continue
 
         # Detect special section types
         is_metrics = bool(re.search(r'ключевые результаты', title, re.IGNORECASE))
@@ -756,9 +1048,22 @@ def _extract_tech_keywords(data: dict) -> list:
     known_terms = [
         'T-Pro 32B', 'SFT', 'Kubernetes', 'computer-use',
         'ChatGPT', 'CRM', 'RAGAS',
-        'Deepgram', 'Whisper', 'Claude', 'GPT-4',
+        'Deepgram', 'Whisper', 'Claude', 'GPT-4', 'GPT-4o',
         'TWork', 'A/B test', 'JSON', 'REST API',
         'red teaming', 'OpenAI', 'Anthropic',
+        'LangChain', 'LlamaIndex', 'FastAPI', 'Supabase',
+        'PostgreSQL', 'MongoDB', 'Redis', 'Docker',
+        'Terraform', 'GitHub Actions', 'GitLab CI',
+        'YandexGPT', 'GigaChat', 'Mistral', 'Llama',
+        'RAG', 'RLHF', 'LoRA', 'QLoRA',
+        'Pinecone', 'Weaviate', 'ChromaDB', 'Qdrant',
+        'Streamlit', 'Gradio', 'Hugging Face',
+        'Power BI', 'Tableau', 'Grafana',
+        'Jira', 'Confluence', 'Notion',
+        'Slack', 'Telegram', 'WhatsApp',
+        'AWS', 'GCP', 'Azure', 'Yandex Cloud',
+        'n8n', 'Zapier', 'Make',
+        'Bitrix24', '1C', 'SAP',
     ]
     found = []
     for term in known_terms:
