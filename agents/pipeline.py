@@ -6,7 +6,9 @@ Supports human-in-the-loop checkpoints between stages.
 """
 
 import asyncio
+import os
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +22,7 @@ from claude_agent_sdk import (
 
 from .definitions import get_all_agents
 from .tools import create_pipeline_tools
+from tools.metrics import flush_deferred_completions
 
 PROJECT_ROOT = Path(__file__).parent.parent
 
@@ -52,14 +55,19 @@ def _build_orchestrator_prompt(
     if company_name:
         input_section += f"\n- Company name: {company_name}"
 
-    # HITL checkpoints
-    hitl_stages = hitl_after or []
-    hitl_section = ""
-    if hitl_stages:
-        hitl_section = f"""
+    # HITL checkpoints — editor checkpoint is ALWAYS mandatory
+    hitl_stages = list(hitl_after or [])
+    if "editor" not in hitl_stages:
+        hitl_stages.append("editor")
+
+    hitl_section = f"""
 HUMAN-IN-THE-LOOP CHECKPOINTS:
 After these stages, STOP and report results to the user before continuing:
 {', '.join(hitl_stages)}
+
+MANDATORY: After the Editor stage, you MUST stop and wait for human approval.
+Show the path to the _READY.md file so the human can review it.
+Do NOT proceed to publishing without explicit human confirmation.
 
 When stopping at a checkpoint:
 1. Report what was produced (file paths, key findings)
@@ -85,6 +93,27 @@ PROJECT PATHS:
 - Knowledge base: {PROJECT_ROOT}/knowledge/
 - Case examples: {PROJECT_ROOT}/cases/examples/
 - Style guide: {PROJECT_ROOT}/references/russian-style-guide.md
+
+---
+
+## METRICS TRACKING (MANDATORY)
+
+You MUST send metrics for EVERY stage using the metrics tools:
+
+1. **BEFORE** starting each stage: call `metrics_task_started` with agent name and task_type
+2. **AFTER** each stage succeeds: call `metrics_task_completed` with agent, task_type, latency (seconds since stage start), and tokens (estimate 0 if unknown)
+3. **ON ERROR**: call `metrics_task_failed` with agent, task_type, error_type, and latency
+
+Agent names and task_types:
+| Stage | agent | task_type |
+|-------|-------|-----------|
+| 1 | transcriber | transcription |
+| 2 | analyst | analysis |
+| 3 | writer | case_writing |
+| 4 | editor | editing |
+| 5 | publisher | publishing |
+
+Track time: note the current time before each stage starts, calculate latency = time after - time before.
 
 ---
 
@@ -117,6 +146,13 @@ Use the "editor" agent.
 - Pass the draft path + transcript path (for fact-checking against source)
 - Agent performs 3 passes: validation → strengthening → final format
 - Agent produces: validation_report.md, case_final.md, [company]_READY.md
+
+### ⛔ MANDATORY CHECKPOINT: HUMAN REVIEW
+After the Editor produces _READY.md, you MUST:
+1. Print the full path to the _READY.md file
+2. Show a brief summary (title, section count, rich block count)
+3. Ask the human to review the file and confirm before publishing
+4. WAIT for explicit approval. Do NOT proceed to Stage 5 without it.
 
 ### STAGE 5: PUBLISHING
 Use the "publisher" agent.
@@ -157,7 +193,7 @@ async def run_pipeline(
     slides_pdf: str | None = None,
     company_name: str | None = None,
     method: str = "youtube",
-    skip_publish: bool = False,
+    skip_publish: bool = True,
     hitl_after: list[str] | None = None,
     model: str | None = None,
     max_budget_usd: float | None = None,
@@ -182,19 +218,30 @@ async def run_pipeline(
         hitl_after=hitl_after,
     )
 
+    # Set unique run ID for metrics tracking
+    run_id = f"pipeline_{uuid.uuid4().hex[:8]}"
+    os.environ["PIPELINE_RUN_ID"] = run_id
+
     agents = get_all_agents()
     mcp_tools = create_pipeline_tools()
+
+    # Build allowed tools — exclude publish tool when skip_publish=True
+    allowed = [
+        "Read", "Write", "Bash", "Glob", "Grep", "Agent",
+        "mcp__caseorium__transcribe_youtube",
+        "mcp__caseorium__extract_slides",
+        "mcp__caseorium__metrics_task_started",
+        "mcp__caseorium__metrics_task_completed",
+        "mcp__caseorium__metrics_task_failed",
+    ]
+    if not skip_publish:
+        allowed.append("mcp__caseorium__publish_to_wordpress")
 
     options = ClaudeAgentOptions(
         model=model or "sonnet",
         agents=agents,
         mcp_servers={"caseorium": mcp_tools},
-        allowed_tools=[
-            "Read", "Write", "Bash", "Glob", "Grep", "Agent",
-            "mcp__caseorium__transcribe_youtube",
-            "mcp__caseorium__extract_slides",
-            "mcp__caseorium__publish_to_wordpress",
-        ],
+        allowed_tools=allowed,
         permission_mode="acceptEdits",
         cwd=str(PROJECT_ROOT),
         max_turns=100,
@@ -221,6 +268,9 @@ async def run_pipeline(
     elapsed = time.time() - start_time
     result_data["wall_time_sec"] = round(elapsed, 1)
 
+    # Flush deferred metrics with real proportional cost
+    flush_deferred_completions(run_id, result_data["cost_usd"])
+
     return result_data
 
 
@@ -230,7 +280,7 @@ async def run_pipeline_interactive(
     slides_pdf: str | None = None,
     company_name: str | None = None,
     method: str = "youtube",
-    skip_publish: bool = False,
+    skip_publish: bool = True,
     hitl_after: list[str] | None = None,
     model: str | None = None,
     max_budget_usd: float | None = None,
@@ -248,19 +298,30 @@ async def run_pipeline_interactive(
         hitl_after=hitl_after,
     )
 
+    # Set unique run ID for metrics tracking
+    run_id = f"pipeline_{uuid.uuid4().hex[:8]}"
+    os.environ["PIPELINE_RUN_ID"] = run_id
+
     agents = get_all_agents()
     mcp_tools = create_pipeline_tools()
+
+    # Build allowed tools — exclude publish tool when skip_publish=True
+    allowed = [
+        "Read", "Write", "Bash", "Glob", "Grep", "Agent",
+        "mcp__caseorium__transcribe_youtube",
+        "mcp__caseorium__extract_slides",
+        "mcp__caseorium__metrics_task_started",
+        "mcp__caseorium__metrics_task_completed",
+        "mcp__caseorium__metrics_task_failed",
+    ]
+    if not skip_publish:
+        allowed.append("mcp__caseorium__publish_to_wordpress")
 
     options = ClaudeAgentOptions(
         model=model or "sonnet",
         agents=agents,
         mcp_servers={"caseorium": mcp_tools},
-        allowed_tools=[
-            "Read", "Write", "Bash", "Glob", "Grep", "Agent",
-            "mcp__caseorium__transcribe_youtube",
-            "mcp__caseorium__extract_slides",
-            "mcp__caseorium__publish_to_wordpress",
-        ],
+        allowed_tools=allowed,
         permission_mode="acceptEdits",
         cwd=str(PROJECT_ROOT),
         max_turns=100,
@@ -288,6 +349,9 @@ async def run_pipeline_interactive(
 
     elapsed = time.time() - start_time
     result_data["wall_time_sec"] = round(elapsed, 1)
+
+    # Flush deferred metrics with real proportional cost
+    flush_deferred_completions(run_id, result_data["cost_usd"])
 
     # Print summary
     status = "✅ SUCCESS" if result_data["success"] else "❌ FAILED"

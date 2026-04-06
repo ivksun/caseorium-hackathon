@@ -602,7 +602,9 @@ def extract_illustration_markers(content: str) -> list:
         slide_match = re.search(r'слайд[ы]?\s*#?(\d+(?:-\d+)?)', desc, re.IGNORECASE)
         slide_num = slide_match.group(1) if slide_match else None
         # Extract caption — short, one line, capitalize
+        # Strip slide number prefix: "слайд #14 — ..." or "слайды #2-4 — ..."
         caption = desc.split('Источник:')[0].strip().rstrip('.')
+        caption = re.sub(r'^слайд[ыe]?\s*#?\d+(?:-\d+)?\s*[—–-]\s*', '', caption, flags=re.IGNORECASE).strip()
         if caption:
             caption = caption[0].upper() + caption[1:]
             # Truncate to ~80 chars for one-line caption

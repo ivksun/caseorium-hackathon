@@ -161,6 +161,9 @@ async def run_pipeline_job(job_id: str, params: dict):
         from agents.tools import create_pipeline_tools
         from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 
+        # Set unique run ID for metrics tracking
+        os.environ["PIPELINE_RUN_ID"] = f"web_{job_id}"
+
         skip_publish = params.get("skip_publish", True)
 
         prompt = _build_orchestrator_prompt(
@@ -175,16 +178,23 @@ async def run_pipeline_job(job_id: str, params: dict):
         agents = get_all_agents()
         mcp_tools = create_pipeline_tools()
 
+        # Exclude publish tool when skip_publish — human reviews first
+        allowed = [
+            "Read", "Write", "Bash", "Glob", "Grep", "Agent",
+            "mcp__caseorium__transcribe_youtube",
+            "mcp__caseorium__extract_slides",
+            "mcp__caseorium__metrics_task_started",
+            "mcp__caseorium__metrics_task_completed",
+            "mcp__caseorium__metrics_task_failed",
+        ]
+        if not skip_publish:
+            allowed.append("mcp__caseorium__publish_to_wordpress")
+
         options = ClaudeAgentOptions(
             model=params.get("model", "sonnet"),
             agents=agents,
             mcp_servers={"caseorium": mcp_tools},
-            allowed_tools=[
-                "Read", "Write", "Bash", "Glob", "Grep", "Agent",
-                "mcp__caseorium__transcribe_youtube",
-                "mcp__caseorium__extract_slides",
-                "mcp__caseorium__publish_to_wordpress",
-            ],
+            allowed_tools=allowed,
             permission_mode="acceptEdits",
             cwd=str(PROJECT_ROOT),
             max_turns=100,
@@ -197,6 +207,10 @@ async def run_pipeline_job(job_id: str, params: dict):
                 job["result_text"] = message.result or ""
                 job["cost_usd"] = message.total_cost_usd or 0.0
                 job["session_id"] = message.session_id
+
+        # Flush deferred metrics with real proportional cost
+        from tools.metrics import flush_deferred_completions
+        flush_deferred_completions(f"web_{job_id}", job.get("cost_usd", 0.0))
 
         # Find output file
         draft_dir = _find_draft_dir(company)
@@ -212,6 +226,9 @@ async def run_pipeline_job(job_id: str, params: dict):
         job["status"] = "error"
         job["error"] = str(e)
         job["events"].append({"type": "error", "message": str(e), "time": time.time()})
+        # Flush whatever stages completed before the error
+        from tools.metrics import flush_deferred_completions
+        flush_deferred_completions(f"web_{job_id}", job.get("cost_usd", 0.0))
 
     # Stop the file watcher
     watcher_task.cancel()

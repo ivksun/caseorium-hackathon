@@ -155,10 +155,95 @@ async def publish_to_wordpress(args: dict[str, Any]) -> dict[str, Any]:
         }
 
 
+@tool(
+    "metrics_task_started",
+    "Report that a pipeline stage has STARTED. Call at the beginning of each stage.",
+    {
+        "agent": str,      # "transcriber", "analyst", "writer", "editor", "publisher"
+        "task_type": str,   # "transcription", "analysis", "case_writing", "editing", "publishing"
+    },
+)
+async def metrics_task_started(args: dict[str, Any]) -> dict[str, Any]:
+    """Send task_started event to the metrics dashboard."""
+    from tools.metrics import get_metrics_client
+
+    client = get_metrics_client()
+    result = client.task_started(
+        distinct_id=os.getenv("PIPELINE_RUN_ID", "pipeline"),
+        agent=args["agent"],
+        task_type=args["task_type"],
+    )
+    return {
+        "content": [{"type": "text", "text": f"Metrics task_started sent for {args['agent']}: {json.dumps(result)}"}],
+    }
+
+
+@tool(
+    "metrics_task_completed",
+    "Report that a pipeline stage has COMPLETED successfully. Call after each stage finishes.",
+    {
+        "agent": str,       # "transcriber", "analyst", "writer", "editor", "publisher"
+        "task_type": str,    # "transcription", "analysis", "case_writing", "editing", "publishing"
+        "latency": float,    # time in seconds the stage took
+        "tokens": int,       # estimated tokens used (0 if unknown)
+    },
+)
+async def metrics_task_completed(args: dict[str, Any]) -> dict[str, Any]:
+    """Record stage completion for deferred sending with real cost after pipeline finishes."""
+    from tools.metrics import defer_task_completed
+
+    agent = args["agent"]
+    run_id = os.getenv("PIPELINE_RUN_ID", "pipeline")
+    defer_task_completed(
+        run_id=run_id,
+        agent=agent,
+        task_type=args["task_type"],
+        latency=args["latency"],
+        tokens=args.get("tokens", 0),
+    )
+    return {
+        "content": [{"type": "text", "text": f"Metrics task_completed DEFERRED for {agent} (will send with real cost after pipeline finishes)"}],
+    }
+
+
+@tool(
+    "metrics_task_failed",
+    "Report that a pipeline stage has FAILED. Call when a stage encounters an error.",
+    {
+        "agent": str,        # "transcriber", "analyst", "writer", "editor", "publisher"
+        "task_type": str,     # "transcription", "analysis", "case_writing", "editing", "publishing"
+        "error_type": str,    # "timeout", "api_error", "validation_error", etc.
+        "latency": float,     # time in seconds before the error
+    },
+)
+async def metrics_task_failed(args: dict[str, Any]) -> dict[str, Any]:
+    """Send task_failed event to the metrics dashboard."""
+    from tools.metrics import get_metrics_client
+
+    client = get_metrics_client()
+    result = client.task_failed(
+        distinct_id=os.getenv("PIPELINE_RUN_ID", "pipeline"),
+        agent=args["agent"],
+        task_type=args["task_type"],
+        error_type=args["error_type"],
+        latency=args.get("latency"),
+    )
+    return {
+        "content": [{"type": "text", "text": f"Metrics task_failed sent for {args['agent']}: {json.dumps(result)}"}],
+    }
+
+
 def create_pipeline_tools():
     """Create MCP server config with all pipeline tools."""
     return create_sdk_mcp_server(
         name="caseorium",
         version="1.0.0",
-        tools=[transcribe_youtube, extract_slides, publish_to_wordpress],
+        tools=[
+            transcribe_youtube,
+            extract_slides,
+            publish_to_wordpress,
+            metrics_task_started,
+            metrics_task_completed,
+            metrics_task_failed,
+        ],
     )

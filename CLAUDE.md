@@ -6,8 +6,11 @@
 ## Быстрый старт
 
 ```bash
-# Полный пайплайн (YouTube → WordPress)
-python3 main.py --url <youtube_url> [--slides <path.pdf>]
+# Пайплайн (YouTube → _READY.md, останавливается для ревью человеком)
+python3 main.py --youtube <youtube_url> [--slides <path.pdf>]
+
+# С автопубликацией (без остановки на ревью — использовать осторожно)
+python3 main.py --youtube <youtube_url> --publish
 
 # Только Writer + Editor (на готовом анализе)
 python3 run_writer_editor.py <case_dir>

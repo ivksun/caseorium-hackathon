@@ -14,8 +14,8 @@ Usage:
     # With presentation slides
     python main.py --youtube "..." --company "Sber" --slides presentation.pdf
 
-    # Skip WordPress publishing
-    python main.py --youtube "..." --company "Sber" --no-publish
+    # Enable WordPress publishing (default: stops after Editor for review)
+    python main.py --youtube "..." --company "Sber" --publish
 
     # High-quality transcription (Deepgram)
     python main.py --youtube "..." --company "Sber" --method deepgram
@@ -73,9 +73,9 @@ Examples:
         help="Transcription method (default: youtube)",
     )
     parser.add_argument(
-        "--no-publish",
+        "--publish",
         action="store_true",
-        help="Skip WordPress publishing stage",
+        help="Enable WordPress publishing (default: stop after Editor for human review)",
     )
     parser.add_argument(
         "--hitl",
@@ -129,7 +129,7 @@ Examples:
             slides_pdf=args.slides,
             company_name=args.company,
             method=args.method,
-            skip_publish=args.no_publish,
+            skip_publish=not args.publish,
             hitl_after=hitl_after,
             model=args.model,
             max_budget_usd=args.budget,
