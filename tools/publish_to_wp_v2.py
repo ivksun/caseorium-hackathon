@@ -96,7 +96,10 @@ class WordPressClient:
         # Add timestamp to avoid duplicate filename rejection
         stem = path.stem if not filename else Path(filename).stem
         suffix = path.suffix if not filename else Path(filename).suffix or path.suffix
-        fname = f"{stem}_{int(time.time())}{suffix}"
+        # Transliterate non-ASCII characters for Content-Disposition header
+        ascii_stem = stem.encode('ascii', 'ignore').decode('ascii') or f"upload_{int(time.time())}"
+        ascii_stem = re.sub(r'[^a-zA-Z0-9_\-]', '_', ascii_stem).strip('_') or 'upload'
+        fname = f"{ascii_stem}_{int(time.time())}{suffix}"
         content_type = 'image/png' if path.suffix == '.png' else 'image/jpeg'
 
         with open(path, 'rb') as f:
@@ -313,6 +316,7 @@ def parse_rich_blocks(content: str) -> list:
       - {'type': 'steps', 'steps': [{'title', 'content'}, ...]}
       - {'type': 'list', 'title': '...', 'items': [{'title', 'points': [...]}, ...]}
       - {'type': 'tech', 'keywords': ['...', ...]}
+      - {'type': 'quote', 'content': '...', 'author': '...', 'position': '...', 'photo': '...'}
     """
     segments = []
     lines = content.split('\n')
@@ -324,7 +328,7 @@ def parse_rich_blocks(content: str) -> list:
         stripped = line.strip()
 
         # Detect opening ::: marker
-        match = re.match(r'^:::(columns|accent|steps|list|tech)\s*(.*)?$', stripped)
+        match = re.match(r'^:::(columns|accent|steps|list|tech|quote)\s*(.*)?$', stripped)
         if match:
             # Flush text buffer
             if text_buf:
@@ -360,6 +364,34 @@ def parse_rich_blocks(content: str) -> list:
             elif block_type == 'list':
                 items = _parse_h3_sections(block_content)
                 segments.append({'type': 'list', 'title': block_title, 'items': items})
+
+            elif block_type == 'quote':
+                # Parse quote: text lines + "— Name, Position" + optional "Фото: filename"
+                quote_lines = []
+                author = ''
+                position = ''
+                photo = ''
+                for ql in block_content.strip().split('\n'):
+                    ql_stripped = ql.strip()
+                    if ql_stripped.startswith('—') or ql_stripped.startswith('—'):
+                        # Author line: "— Name, Position"
+                        author_part = ql_stripped.lstrip('—').lstrip('—').strip()
+                        if ',' in author_part:
+                            author = author_part.split(',', 1)[0].strip()
+                            position = author_part.split(',', 1)[1].strip()
+                        else:
+                            author = author_part
+                    elif ql_stripped.lower().startswith('фото:'):
+                        photo = ql_stripped.split(':', 1)[1].strip()
+                    elif ql_stripped:
+                        quote_lines.append(ql_stripped)
+                segments.append({
+                    'type': 'quote',
+                    'content': ' '.join(quote_lines),
+                    'author': author,
+                    'position': position,
+                    'photo': photo,
+                })
 
             elif block_type == 'tech':
                 # Comma-separated or newline-separated keywords
@@ -484,6 +516,23 @@ def rich_block_to_acf(segment: dict) -> dict | None:
             '2-я_колонка_текста': '',
         }
 
+    elif btype == 'quote':
+        author_block = {
+            'acf_fc_layout': '',
+            'фото_автора_отзыва': segment.get('_photo_id', ''),
+            'имя_автора_отзыва': segment.get('author', ''),
+            'подпись_должность_автора_отзыва': segment.get('position', ''),
+        }
+        return {
+            'acf_fc_layout': 'layer_feedback',
+            'отступ_сверху_секции': '32',
+            'отступ_снизу_секции': '32',
+            'заголовок_блока': '',
+            'заголовок_отзыва': '',
+            'текст_отзыва': f'<p>{_inline(segment["content"])}</p>',
+            'блок_отзыва': [author_block],
+        }
+
     elif btype == 'tech':
         keywords = segment.get('keywords', [])
         if len(keywords) < 3:
@@ -507,6 +556,8 @@ def md_to_html(text: str) -> str:
     html_parts = []
     in_list = False
     in_blockquote = False
+    in_table = False
+    table_header_done = False
 
     for line in text.split('\n'):
         stripped = line.strip()
@@ -518,9 +569,42 @@ def md_to_html(text: str) -> str:
             if in_blockquote:
                 html_parts.append('</blockquote>')
                 in_blockquote = False
+            if in_table:
+                html_parts.append('</tbody></table>')
+                in_table = False
+                table_header_done = False
             # Add spacing between paragraphs
             html_parts.append('<p>&nbsp;</p>')
             continue
+
+        # Markdown table rows
+        if stripped.startswith('|') and stripped.endswith('|'):
+            # Close other open blocks
+            if in_list:
+                html_parts.append('</ul>')
+                in_list = False
+            if in_blockquote:
+                html_parts.append('</blockquote>')
+                in_blockquote = False
+            # Skip separator rows (| --- | --- |)
+            if re.match(r'^\|[\s\-:|]+\|$', stripped):
+                continue
+            cells = [c.strip() for c in stripped.strip('|').split('|')]
+            if not in_table:
+                html_parts.append('<table><thead>')
+                html_parts.append('<tr>' + ''.join(f'<th>{_inline(c)}</th>' for c in cells) + '</tr>')
+                html_parts.append('</thead><tbody>')
+                in_table = True
+                table_header_done = True
+            else:
+                html_parts.append('<tr>' + ''.join(f'<td>{_inline(c)}</td>' for c in cells) + '</tr>')
+            continue
+
+        # Close table if non-table line encountered
+        if in_table:
+            html_parts.append('</tbody></table>')
+            in_table = False
+            table_header_done = False
 
         # Skip illustration markers — they're handled separately
         if '[ИЛЛЮСТРАЦИЯ:' in stripped:
@@ -556,6 +640,8 @@ def md_to_html(text: str) -> str:
         html_parts.append('</ul>')
     if in_blockquote:
         html_parts.append('</blockquote>')
+    if in_table:
+        html_parts.append('</tbody></table>')
 
     # Clean up multiple empty paragraphs
     result = '\n'.join(html_parts)
@@ -679,7 +765,7 @@ def build_sections(data: dict, slides_dir: str = None, wp_client=None) -> list:
             clean_content = clean_content.replace(m['full_match'], '')
 
         # --- Check for explicit ::: rich blocks first ---
-        has_rich_blocks = bool(re.search(r'^:::(columns|accent|steps|list|tech)', clean_content, re.MULTILINE))
+        has_rich_blocks = bool(re.search(r'^:::(columns|accent|steps|list|tech|quote)', clean_content, re.MULTILINE))
         if has_rich_blocks:
             rich_segments = parse_rich_blocks(clean_content)
             first_text = True
@@ -732,6 +818,17 @@ def build_sections(data: dict, slides_dir: str = None, wp_client=None) -> list:
                 elif seg['type'] != 'text':
                     if seg['type'] == 'tech':
                         has_explicit_tech = True
+                    # Upload photo for :::quote blocks
+                    if seg['type'] == 'quote' and seg.get('photo') and slides_dir and wp_client:
+                        photo_path = Path(slides_dir) / seg['photo']
+                        if not photo_path.exists():
+                            # Try case directory
+                            photo_path = Path(slides_dir).parent / seg['photo']
+                        if photo_path.exists():
+                            print(f"  Uploading quote photo: {seg['photo']}...")
+                            result = wp_client.upload_image(str(photo_path), photo_path.name)
+                            if result:
+                                seg['_photo_id'] = result['id']
                     acf_block = rich_block_to_acf(seg)
                     if acf_block:
                         sections.append(acf_block)
